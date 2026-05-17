@@ -8,10 +8,11 @@
 
 # Motivation
 
+While writing some complicated macros by example my jaw got so tired I could munch no more. This crate's macros will try to munch for you so you can focus on digesting your DSL (domain specific language).
+
+`demuncher` crate contains a rust macro `test_permutations`... 
+
 
 # Overview
-
-While writing some complicated macros by example my jaw muscles got tired . This crate's macros will try to munch for you so you can focus on digesting.
-`demuncher` crate contains a rust macro `test_permutations`... 
 
 # Usage

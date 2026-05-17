@@ -4,6 +4,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#![recursion_limit = "1024"]
+
+mod pipeline;
+mod splitting;
+
 #[macro_export]
 macro_rules! all_splitted_by {
     ($splitter:path , $apply:path { $($args:tt)* } , $($list:tt)*) => {
@@ -16,6 +21,9 @@ macro_rules! all_splitted_by {
 
 #[macro_export]
 macro_rules! each_splitted_by {
+    ($splitter:path , $apply:path { $($args:tt)* } , $($list:tt)*) => {
+        $crate::splitted_with_strategy_by_marker! { $splitter, $crate::__apply_each_splitted, $apply{ $($args)* }, $($list)* }
+    };
     ($marker:tt , $apply:path { $($args:tt)* } , $($list:tt)*) => {
         $crate::splitted_with_strategy_by! { $marker, $crate::__apply_each_splitted, $apply{ $($args)* }, $($list)* }
     };
