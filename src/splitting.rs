@@ -9,59 +9,78 @@ macro_rules! split_by {
     (
         {$($tokens:tt)*} => {,} => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { {$($tokens)* } => $crate::split { is_colon{} } => $($cont_args)* }
+        $cont! { {$($tokens)* } => $crate::split { $crate::is_comma{} } => $($cont_args)* }
     };
     (
         {$($tokens:tt)*} => {;} => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { {$($tokens)* } => $crate::split { is_semicolon{} } => $($cont_args)* }
+        $cont! { {$($tokens)* } => $crate::split { $crate::is_semicolon{} } => $($cont_args)* }
     };
     (
         {$($tokens:tt)*} => {=>} => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { {$($tokens)* } => $crate::split { is_double_arrow{} } => $($cont_args)* }
+        $cont! { {$($tokens)* } => $crate::split { $crate::is_double_arrow{} } => $($cont_args)* }
+    };
+    (
+        {$($tokens:tt)*} => {:} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {$($tokens)* } => $crate::split { $crate::is_colon{} } => $($cont_args)* }
     };
 }
 
 #[macro_export]
-macro_rules! is_colon {
+macro_rules! is_comma {
     (
-        { {,} then {$($yes_input:tt)*} else {$($no_input:tt)*} } => {} => $cont:path { $($cont_args:tt)* }
+        {,} => {} => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { $($yes_input)* => $($cont_args)* }
+        $cont! { {true} => $($cont_args)* }
     };
     (
-        { {$token:tt} then {$($yes_input:tt)*} else {$($no_input:tt)*} } => {} => $cont:path { $($cont_args:tt)* }
+        { $($tokens:tt)* } => {} => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { $($no_input)* => $($cont_args)* }
+        $cont! { {false} => $($cont_args)* }
     };
 }
 
 #[macro_export]
 macro_rules! is_semicolon {
     (
-        { {;} then {$($yes_input:tt)*} else {$($no_input:tt)*} } => {} => $cont:path { $($cont_args:tt)* }
+        {;} => {} => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { $($yes_input)* => $($cont_args)* }
+        $cont! { {true} => $($cont_args)* }
     };
     (
-        { {$token:tt} then {$($yes_input:tt)*} else {$($no_input:tt)*} } => {} => $cont:path { $($cont_args:tt)* }
+        { $($tokens:tt)* } => {} => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { $($no_input)* => $($cont_args)* }
+        $cont! { {false} => $($cont_args)* }
     };
 }
 
 #[macro_export]
 macro_rules! is_double_arrow {
     (
-        { {=>} then {$($yes_input:tt)*} else {$($no_input:tt)*} } => {} => $cont:path { $($cont_args:tt)* }
+        {=>} => {} => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { $($yes_input)* => $($cont_args)* }
+        $cont! { {true} => $($cont_args)* }
     };
     (
-        { {$token:tt} then {$($yes_input:tt)*} else {$($no_input:tt)*} } => {} => $cont:path { $($cont_args:tt)* }
+        { $($tokens:tt)* } => {} => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { $($no_input)* => $($cont_args)* }
+        $cont! { {false} => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! is_colon {
+    (
+        {:} => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {true} => $($cont_args)* }
+    };
+    (
+        { $($tokens:tt)* } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {false} => $($cont_args)* }
     };
 }
 
@@ -69,7 +88,7 @@ macro_rules! is_double_arrow {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{apply_pipe, de_brace, fork};
+    use crate::{apply_pipe, debrace, fork};
 
     macro_rules! as_array {
         (
@@ -119,7 +138,7 @@ mod tests {
             { "a", "1" => 2 - 1, 3 - 2; "b" => 4 - 2, 5 - 3, 3; "c", "_1", "_2" => 6 - 3 }
             => split_by {;}
             => [
-                de_brace{}
+                debrace{}
                 => split_by {=>}
                 => fork {
                     { split_by{,} => join{} }
@@ -134,5 +153,27 @@ mod tests {
         expected_map.insert(String::from("b"), 2 + 2 + 3);
         expected_map.insert(String::from("c_1_2"), 3);
         assert_eq!(map, expected_map);
+    }
+
+    #[test]
+    fn split_by_semicolon_then_double_arrow_ignoring_second_side_then_split_by_colon() {
+        //trace_macros!(true);
+        let a = {
+            apply_pipe! {
+                { "a", "1" => 2 - 1, 3 - 2; "b" => 4 - 2, 5 - 3, 3; "c", "_1", "_2" => 6 - 3 }
+                => split_by {;}
+                => [
+                    debrace{}
+                    => split_by {=>}
+                    => fork {
+                        { split_by{,} => join{} }
+                        {}
+                    }
+                ]
+                => as_array{}
+            }
+        };
+        //trace_macros!(false);
+        assert_eq!(a, ["a1", "b", "c_1_2"]);
     }
 }
