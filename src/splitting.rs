@@ -88,7 +88,7 @@ macro_rules! is_colon {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{apply_pipe, debrace, fork};
+    use crate::{apply_pipe, debrace, embrace, fork, reset};
 
     macro_rules! as_array {
         (
@@ -141,8 +141,8 @@ mod tests {
                 debrace{}
                 => split_by {=>}
                 => fork {
-                    { split_by{,} => join{} }
-                    { split_by{,} => add{} }
+                    { debrace{} => split_by{,} => join{} => embrace{} }
+                    { debrace{} => split_by{,} => add{} => embrace{} }
                 }
                 => add_to_map { map }
             ]
@@ -166,8 +166,8 @@ mod tests {
                     debrace{}
                     => split_by {=>}
                     => fork {
-                        { split_by{,} => join{} }
-                        {}
+                        { debrace{} => split_by{,} => join{} }
+                        { reset{} }
                     }
                 ]
                 => as_array{}

@@ -37,11 +37,6 @@ macro_rules! continue_pipe {
         $crate::continue_pipe! { {} => $($cont)+ }
     };
     (
-        { $($input_ignored:tt)* } => { $($reset:tt)* } => $($cont:tt)+
-    ) => {
-        $crate::continue_pipe! { { $($reset)* } =>  $($cont)+ }
-    };
-    (
         { $($input:tt)* } => $f:path { $($f_args:tt)* } => $($cont:tt)+
     ) => {
         $f! { { $($input)* } => { $($f_args)* } => $crate::continue_pipe { /* { output-added-by-f } => */ $($cont)+ } }
@@ -139,22 +134,12 @@ macro_rules! fork {
     ( // Fill in for a missing element
         {} => { {$($head_pipe:tt)*} $($tail_pipes:tt)* } => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { {{}} => $crate::fork { {$($head_pipe)*}$($tail_pipes)* } => $($cont_args)* }
+        $cont! { {} => $($head_pipe)+ => $crate::__accumulate_forked_pipes { {} => {$($tail_pipes)*} => {} } => $($cont_args)* }
     };
     (
-        { {$($head_input:tt)*} $($tail_inputs:tt)* } => { {} $($tail_pipes:tt)* } => $cont:path { $($cont_args:tt)* }
+        { $head_input:tt $($tail_inputs:tt)* } => { {$($head_pipe:tt)+} $($tail_pipes:tt)* } => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { {$($tail_inputs)*} => $crate::fork {$($tail_pipes)*} => $($cont_args)* }
-    };
-    (
-        { {$($head_input:tt)*} $($tail_inputs:tt)* } => { {=>} $($tail_pipes:tt)* } => $cont:path { $($cont_args:tt)* }
-    ) => {
-        $cont! { {$($head_input)*} => $crate::__accumulate_forked_pipes { {$($tail_inputs)*} => {$($tail_pipes)*} => {} } => $($cont_args)* }
-    };
-    (
-        { {$($head_input:tt)*} $($tail_inputs:tt)* } => { {$($head_pipe:tt)*} $($tail_pipes:tt)* } => $cont:path { $($cont_args:tt)* }
-    ) => {
-        $cont! { {$($head_input)*} => $($head_pipe)* => $crate::__accumulate_forked_pipes { {$($tail_inputs)*} => {$($tail_pipes)*} => {} } => $($cont_args)* }
+        $cont! { {$head_input} => $($head_pipe)+ => $crate::__accumulate_forked_pipes { {$($tail_inputs)*} => {$($tail_pipes)*} => {} } => $($cont_args)* }
     };
 }
 
@@ -175,27 +160,27 @@ macro_rules! cross {
 #[macro_export]
 macro_rules! when {
     (
-        { $($input:tt)* } => { { $($cond_pipe:tt)+ } => { $($($then_pipe:tt)+)? } else { $($($else_pipe:tt)+)? } } => $cont:path { $($cont_args:tt)* }
+        { $($input:tt)* } => { { $($cond_pipe:tt)+ } => { $($then_pipe:tt)+ } else { $($else_pipe:tt)+ } } => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! {
             { $($input)* }
             => $($cond_pipe)+
             => $crate::__when_continuation{
-                then: { { $($input)* } $(=> $($then_pipe)+)? },
-                else: { { $($input)* } $(=> $($else_pipe)+)? }
+                then: { { $($input)* } => $($then_pipe)+ },
+                else: { { $($input)* } => $($else_pipe)+ }
             }
             => $($cont_args)*
         }
     };
     (
-        { $($input:tt)* } => { { $($cond_pipe:tt)+ } => { $($($then_pipe:tt)+)? } } => $cont:path { $($cont_args:tt)* }
+        { $($input:tt)* } => { { $($cond_pipe:tt)+ } => { $($then_pipe:tt)+ } } => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! {
             { $($input)* }
             => $($cond_pipe)+
             => $crate::__when_continuation{
-                then: { { $($input)* } $(=> $($then_pipe)+)? },
-                else: {{}}
+                then: { { $($input)* } => $($then_pipe)+ },
+                else: { {} }
             }
             => $($cont_args)*
         }
@@ -271,6 +256,24 @@ macro_rules! repeat {
 }
 
 #[macro_export]
+macro_rules! reset {
+    (
+        { $($input_ignored:tt)* } => { $($new_input:tt)* } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { { $($new_input)* } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! pass {
+    (
+        { $($input:tt)* } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { { $($input)* } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
 #[doc(hidden)]
 macro_rules! __accumulate_repeat {
     (
@@ -319,13 +322,12 @@ macro_rules! __accumulate_render {
         $cont! {
             { {$($acc)*} }
             => $crate::fork{
-                {=>}
+                {$crate::debrace{}}
                 {
                     $crate::__accumulate_render{pattern: { $($head)* }, input: { $($input)* }}
                     => $crate::embrace{}
                 }
             }
-            => $crate::join_with{}
             => $crate::__accumulate_render{pattern: { $($tail)* }, input: { $($input)* }}
             => $($cont_args)*
         }
@@ -336,13 +338,12 @@ macro_rules! __accumulate_render {
         $cont! {
             { {$($acc)*} }
             => $crate::fork{
-                {=>}
+                {$crate::debrace{}}
                 {
                     $crate::__accumulate_render{pattern: { $($head)* }, input: { $($input)* }}
                     => $crate::in_brackets{}
                 }
             }
-            => $crate::join_with{}
             => $crate::__accumulate_render{pattern: { $($tail)* }, input: { $($input)* }}
             => $($cont_args)*
         }
@@ -353,13 +354,12 @@ macro_rules! __accumulate_render {
         $cont! {
             { {$($acc)*} }
             => $crate::fork{
-                {=>}
+                {$crate::debrace{}}
                 {
                     $crate::__accumulate_render{pattern: { $($head)* }, input: { $($input)* }}
                     => $crate::in_parentheses{}
                 }
             }
-            => $crate::join_with{}
             => $crate::__accumulate_render{pattern: { $($tail)* }, input: { $($input)* }}
             => $($cont_args)*
         }
@@ -431,42 +431,18 @@ macro_rules! __accumulate_forked_pipes {
         }
         => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { { $($output)* } => $crate::__accumulate_forked_pipes { {{}} => { {$($head_pipe)*} $($tail_pipes)* } => { $($acc)* } } => $($cont_args)* }
-    };
-    // Empty pipe => skip input
-    (
-        { $($output:tt)* }
-        => {
-            { {$($head_input:tt)*} $($tail_inputs:tt)* }
-            => { {} $($tail_pipes:tt)* }
-            => { $($acc:tt)* }
-        }
-        => $cont:path { $($cont_args:tt)* }
-    ) => {
-        $cont! { { $($output)* } => $crate::__accumulate_forked_pipes { {$($tail_inputs)*} => {$($tail_pipes)*} => { $($acc)* } } => $($cont_args)* }
-    };
-    // Pass-through pipe {=>} => forward input
-    (
-        { $($output:tt)* }
-        => {
-            { {$($head_input:tt)*} $($tail_inputs:tt)* }
-            => { {=>} $($tail_pipes:tt)* }
-            => { $($acc:tt)* }
-        }
-        => $cont:path { $($cont_args:tt)* }
-    ) => {
-        $cont! { {$($head_input)*} => $crate::__accumulate_forked_pipes { {$($tail_inputs)*} => {$($tail_pipes)*} => { $($acc)* { $($output)* } } } => $($cont_args)* }
+        $cont! { {} => $($head_pipe)* => $crate::__accumulate_forked_pipes { {} => {$($tail_pipes)*} => { $($acc)* $($output)* } } => $($cont_args)* }
     };
     (
         { $($output:tt)* }
         => {
-            { {$($head_input:tt)*} $($tail_inputs:tt)* }
+            { $head_input:tt $($tail_inputs:tt)* }
             => { {$($head_pipe:tt)+} $($tail_pipes:tt)* }
             => { $($acc:tt)* }
         }
         => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { {$($head_input)*} => $($head_pipe)* => $crate::__accumulate_forked_pipes { {$($tail_inputs)*} => {$($tail_pipes)*} => { $($acc)* { $($output)* } } } => $($cont_args)* }
+        $cont! { {$head_input} => $($head_pipe)* => $crate::__accumulate_forked_pipes { {$($tail_inputs)*} => {$($tail_pipes)*} => { $($acc)* $($output)* } } => $($cont_args)* }
     };
     (
         { $($output:tt)* }
@@ -477,7 +453,7 @@ macro_rules! __accumulate_forked_pipes {
         }
         => $cont:path { $($cont_args:tt)* }
     ) => {
-        $cont! { { $($acc)* { $($output)* } } => $($cont_args)* }
+        $cont! { { $($acc)* $($output)* } => $($cont_args)* }
     };
 }
 
@@ -799,7 +775,7 @@ mod tests {
                 {{{1}{11}} {{2}} {{3}{13}}}
                 => [
                     debrace{}
-                    => fork { {=>} {} }
+                    => fork { {pass{}} {reset{}} }
                 ]
                 => as_array {}
             }
@@ -816,7 +792,7 @@ mod tests {
                 {{{1}{11}} {{2}} {{3}{13}}}
                 => [
                     debrace{}
-                    => fork { {} {=>} }
+                    => fork { {reset{}} {pass{}} }
                     => skip_if_empty{}
                 ]
                 => as_array {}
@@ -836,7 +812,7 @@ mod tests {
                 => [
                     debrace {}
                     => split { is_colon {} }
-                    => fork { {} {=>} }
+                    => fork { {reset{}} {pass{}} }
                 ]
                 => as_array {}
             }
@@ -855,7 +831,7 @@ mod tests {
                 => [
                     debrace {}
                     => split { is_colon {} }
-                    => fork { {=>} {} }
+                    => fork { {pass{}} {reset{}} }
                 ]
                 => as_array {}
             }
@@ -1034,7 +1010,7 @@ mod tests {
                 => [
                     debrace{}
                     => when{
-                        { is_zero_string{} } => { {0} } else {}
+                        { is_zero_string{} } => { reset{0} } else { pass{} }
                     }
                     => embrace{}
                 ]
@@ -1107,20 +1083,24 @@ mod tests {
                 => repeat{{}{}}
                 => fork{
                     {
-                        [
+                        debrace{}
+                        => [
                             debrace{}
                             => when{ { is_marked{} } => {tail{} => embrace{}} }
                         ]
                         => join_with{,}
                         => in_brackets{}
+                        => embrace{}
                     }
                     {
-                        [
+                        debrace{}
+                        => [
                             debrace{}
                             => when{ { is_marked{} => not{} } => {embrace{}} }
                         ]
                         => join_with{,}
                         => in_brackets{}
+                        => embrace{}
                     }
                 }
                 => join_with{,}
