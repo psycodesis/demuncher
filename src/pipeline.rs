@@ -53,9 +53,32 @@ macro_rules! split {
 }
 
 #[macro_export]
+macro_rules! split_prefix_until {
+    (
+        { $($input:tt)* } => { $should_split:path { $($should_split_args:tt)* } } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { { $($input)* } => $crate::__accumulate_split_prefix_until { $should_split { $($should_split_args)* } => {} } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
 macro_rules! debrace {
     (
         {{$($tokens:tt)*}} => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {$($tokens)*} => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! perhaps_debrace {
+    (
+        {{$($tokens:tt)*}} => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {$($tokens)*} => $($cont_args)* }
+    };
+    (
+        {$($tokens:tt)*} => {} => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { {$($tokens)*} => $($cont_args)* }
     };
@@ -270,6 +293,159 @@ macro_rules! pass {
         { $($input:tt)* } => {} => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { { $($input)* } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! swap {
+    (
+        { $first:tt $($second:tt)* } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { { $($second)* $first } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! is_empty {
+    (
+        {} => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {true} => $($cont_args)* }
+    };
+    (
+        { $($_ignored:tt)+ } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {false} => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! transpose {
+    (
+        { $($input:tt)* } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $crate::__accumulate_transpose! {
+            { $($input)* }
+            => {
+                from: {},
+                to: {}
+            }
+            => $cont { $($cont_args)* }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! any {
+    (
+        { $($input:tt)+ } => { $($cond_pipe:tt)+ } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! {
+            { $($input)+ }
+            => $crate::when{
+                { $crate::head{} => $($cond_pipe)+ } => { reset{true} } else {
+                    $crate::tail{}
+                    => $crate::any{ $($cond_pipe)+ }
+                }
+            }
+            => $($cont_args)*
+        }
+    };
+    (
+        {} => { $($cond_pipe:tt)+ } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {false} => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! all {
+    (
+        { $($input:tt)+ } => { $($cond_pipe:tt)+ } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! {
+            { $($input)+ }
+            => $crate::when{
+                { $crate::head{} => $($cond_pipe)+ } => {
+                    $crate::tail{}
+                    => $crate::all{ $($cond_pipe)+ }
+                } else {false}
+            }
+            => $($cont_args)*
+        }
+    };
+    (
+        {} => { $($cond_pipe:tt)+ } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {true} => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __accumulate_transpose {
+    (
+        { { $row_head:tt $($row_tail:tt)* } $($input_tail:tt)* }
+        => {
+            from: { { $($from_cols_head:tt)* } $($from_cols_tail:tt)* },
+            to: { $($to_cols:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $crate::__accumulate_transpose! {
+            { { $($row_tail)* } $($input_tail)* }
+            => {
+                from: { $($from_cols_tail)* },
+                to: { $($to_cols)* { $($from_cols_head)* $row_head } }
+            }
+            => $cont { $($cont_args)* }
+        }
+    };
+    (
+        { { $row_head:tt $($row_tail:tt)* } $($input_tail:tt)* }
+        => {
+            from: {},
+            to: { $($to_cols:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $crate::__accumulate_transpose! {
+            { { $($row_tail)* } $($input_tail)* }
+            => {
+                from: {},
+                to: { $($to_cols)* { $row_head } }
+            }
+            => $cont { $($cont_args)* }
+        }
+    };
+    (
+        { {} $($input_tail:tt)* }
+        => {
+            from: { $($from_cols:tt)* },
+            to: { $($to_cols:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $crate::__accumulate_transpose! {
+            { $($input_tail)* }
+            => {
+                from: { $($to_cols)* $($from_cols)* },
+                to: {}
+            }
+            => $cont { $($cont_args)* }
+        }
+    };
+    (
+        {}
+        => {
+            from: { $($from_cols:tt)* },
+            to: { $($to_cols:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! {
+            { $($to_cols)* $($from_cols)* } => $($cont_args)*
+        }
     };
 }
 
@@ -513,6 +689,34 @@ macro_rules! __accumulate_split {
 
 #[macro_export]
 #[doc(hidden)]
+macro_rules! __accumulate_split_prefix_until {
+    (
+        { $head:tt $($tail:tt)* } => { $should_split:path { $($should_split_args:tt)* } => {$($prefix:tt)*} } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! {
+            { $head $($tail)* }
+            => $crate::when{
+                { $crate::head{} => $should_split{ $($should_split_args)* } }
+                => {
+                    $crate::reset{ {$($prefix)*} {$head$($tail)*} }
+                }
+                else {
+                    $crate::tail{}
+                    => $crate::__accumulate_split_prefix_until { $should_split { $($should_split_args)* } => {$($prefix)*$head} }
+                }
+            }
+            => $($cont_args)*
+        }
+    };
+    (
+        {} => { $should_split:path { $($should_split_args:tt)* } => {$($prefix:tt)*} } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { { {$($prefix)*} {} } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
 macro_rules! __when_continuation {
     (
         { true } => { then: { $($then_pipe:tt)* }, else: { $($else_pipe:tt)* } } => $cont:path { $($cont_args:tt)* }
@@ -679,16 +883,16 @@ mod tests {
         assert_eq!(a, ["12", "345", "6"]);
     }
 
-    macro_rules! split_by_colon {
+    macro_rules! split_by_comma {
         (
             { , $($tail:tt)* } => { {$($group:tt)*} => {$($acc:tt)*} } => $cont:path { $($cont_args:tt)* }
         ) => {
-            $cont! { { $($tail)* } => split_by_colon { {} => {$($acc)*{$($group)*}} } => $($cont_args)* }
+            $cont! { { $($tail)* } => split_by_comma { {} => {$($acc)*{$($group)*}} } => $($cont_args)* }
         };
         (
             { $head:tt $($tail:tt)* } => { {$($group:tt)*} => {$($acc:tt)*} } => $cont:path { $($cont_args:tt)* }
         ) => {
-            $cont! { { $($tail)* } => split_by_colon { {$($group)*$head} => {$($acc)*} } => $($cont_args)* }
+            $cont! { { $($tail)* } => split_by_comma { {$($group)*$head} => {$($acc)*} } => $($cont_args)* }
         };
         (
             {} => { {$($group:tt)*} => {$($acc:tt)*} } => $cont:path { $($cont_args:tt)* }
@@ -698,14 +902,14 @@ mod tests {
     }
 
     #[test]
-    fn split_by_colon_in_pipe() {
+    fn split_by_comma_in_pipe() {
         //trace_macros!(true);
-        let a = { apply_pipe! { {1+3, 2+3+4, 2} => split_by_colon { {} => {} } => as_array {} } };
+        let a = { apply_pipe! { {1+3, 2+3+4, 2} => split_by_comma { {} => {} } => as_array {} } };
         //trace_macros!(false);
         assert_eq!(a, [1+3, 2+3+4, 2]);
     }
 
-    macro_rules! is_colon {
+    macro_rules! is_comma {
         (
             {,} => {} => $cont:path { $($cont_args:tt)* }
         ) => {
@@ -719,19 +923,27 @@ mod tests {
     }
 
     #[test]
-    fn split_by_is_colon_in_pipe() {
+    fn split_by_is_comma_in_pipe() {
         //trace_macros!(true);
-        let a = { apply_pipe! { {1+3, 2+3+4, 2} => split { is_colon {} } => as_array {} } };
+        let a = { apply_pipe! { {1+3, 2+3+4, 2} => split { is_comma {} } => as_array {} } };
         //trace_macros!(false);
         assert_eq!(a, [1+3, 2+3+4, 2]);
     }
 
     #[test]
-    fn split_by_is_colon_for_empty_input_in_pipe() {
+    fn split_by_is_comma_for_empty_input_in_pipe() {
         //trace_macros!(true);
-        let a: [i32; _] = { apply_pipe! { {} => split { is_colon {} } => [ skip_if_empty{} ] => as_array {} } };
+        let a: [i32; _] = { apply_pipe! { {} => split { is_comma {} } => [ skip_if_empty{} ] => as_array {} } };
         //trace_macros!(false);
         assert_eq!(a, []);
+    }
+
+    #[test]
+    fn split_by_is_comma_for_input_without_comma_in_pipe() {
+        //trace_macros!(true);
+        let a: [i32; _] = { apply_pipe! { { 1+2+3 } => split { is_comma {} } => [ skip_if_empty{} ] => as_array {} } };
+        //trace_macros!(false);
+        assert_eq!(a, [1+2+3]);
     }
 
     macro_rules! is_semicolon {
@@ -756,7 +968,7 @@ mod tests {
                 => split { is_semicolon {} }
                 => [
                     debrace {}
-                    => split { is_colon {} }
+                    => split { is_comma {} }
                     => [ to_string{} ]
                     => join {}
                 ]
@@ -811,7 +1023,7 @@ mod tests {
                 => split { is_semicolon {} }
                 => [
                     debrace {}
-                    => split { is_colon {} }
+                    => split { is_comma {} }
                     => fork { {reset{}} {pass{}} }
                 ]
                 => as_array {}
@@ -830,7 +1042,7 @@ mod tests {
                 => split { is_semicolon {} }
                 => [
                     debrace {}
-                    => split { is_colon {} }
+                    => split { is_comma {} }
                     => fork { {pass{}} {reset{}} }
                 ]
                 => as_array {}
@@ -1216,5 +1428,222 @@ mod tests {
         };
         // trace_macros!(false);
         assert_eq!(a, [14, 8, 6, 5, 16]);
+    }
+
+    #[test]
+    fn split_prefix_until_colon() {
+        let a = {
+            apply_pipe!{
+                {1 + 2 + 3, 4 + 5, 6, 7 + 8}
+                => split_prefix_until{ is_comma{} }
+                => fork {
+                    { pass{} }
+                    {
+                        debrace{}
+                        => tail{}
+                        => split{ is_comma{} }
+                        => join_with{,}
+                        => in_brackets{}
+                        => embrace{}
+                    }
+                }
+                => join_with{,}
+                => in_parentheses{}
+            }
+        };
+        assert_eq!(a, (1 + 2 + 3, [4 + 5, 6, 7 + 8]));
+    }
+
+    #[test]
+    fn transposes_3_by_4_matrix() {
+        let a = {
+            apply_pipe!{
+                {[[11, 12, 13], [21, 22, 23], [31, 32, 33], [41, 42, 43]]}
+                => strip_brackets{}
+                => split{ is_comma{} }
+                => [
+                    debrace{}
+                    => strip_brackets{}
+                    => split{ is_comma{} }
+                    => embrace{}
+                ]
+                => transpose{}
+                => [
+                    debrace{}
+                    => join_with{,}
+                    => in_brackets{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_brackets{}
+            }
+        };
+        assert_eq!(a, [[11, 21, 31, 41], [12, 22, 32, 42], [13, 23, 33, 43]]);
+    }
+
+    #[test]
+    fn transposes_2_by_5_matrix() {
+        let a = {
+            apply_pipe!{
+                {[[11, 12], [21, 22], [31, 32], [41, 42], [51, 52]]}
+                => strip_brackets{}
+                => split{ is_comma{} }
+                => [
+                    debrace{}
+                    => strip_brackets{}
+                    => split{ is_comma{} }
+                    => embrace{}
+                ]
+                => transpose{}
+                => [
+                    debrace{}
+                    => join_with{,}
+                    => in_brackets{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_brackets{}
+            }
+        };
+        assert_eq!(a, [[11, 21, 31, 41, 51], [12, 22, 32, 42, 52]]);
+    }
+
+    #[test]
+    fn transposes_4_rows_fringed() {
+        let a = {
+            apply_pipe!{
+                {([11, 12], [21, 22, 23], [31], [41, 42])}
+                => strip_parentheses{}
+                => split{ is_comma{} }
+                => [
+                    debrace{}
+                    => strip_brackets{}
+                    => split{ is_comma{} }
+                    => embrace{}
+                ]
+                => transpose{}
+                => [
+                    debrace{}
+                    => join_with{,}
+                    => in_brackets{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_parentheses{}
+            }
+        };
+        assert_eq!(a, ([11, 21, 31, 41], [12, 22, 42], [23]));
+    }
+
+    #[test]
+    fn transposes_4_rows_fringed_with_2_empty() {
+        let a = {
+            apply_pipe!{
+                {((), (21, 22, 23), (), (41, 42))}
+                => strip_parentheses{}
+                => split{ is_comma{} }
+                => [
+                    debrace{}
+                    => strip_parentheses{}
+                    => split{ is_comma{} }
+                    => embrace{}
+                ]
+                => transpose{}
+                => [
+                    debrace{}
+                    => skip_all_empty{}
+                    => join_with{,}
+                    => in_parentheses{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_parentheses{}
+            }
+        };
+        assert_eq!(a, ((21, 41), (22, 42), (23)));
+    }
+
+    #[test]
+    fn transposes_1_item() {
+        let a = {
+            apply_pipe!{
+                {{{2}}}
+                => transpose{}
+                => [
+                    debrace{}
+                    => skip_all_empty{}
+                    => join_with{,}
+                    => in_brackets{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_brackets{}
+            }
+        };
+        assert_eq!(a, [[2]]);
+    }
+
+    #[test]
+    fn transposes_empty() {
+        let a = {
+            apply_pipe!{
+                {}
+                => transpose{}
+                => [
+                    debrace{}
+                    => skip_all_empty{}
+                    => join_with{,}
+                    => in_parentheses{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_parentheses{}
+            }
+        };
+        assert_eq!(a, ());
+    }
+
+    #[test]
+    fn any_is_comma() {
+        let a = {
+            apply_pipe!{
+                { 3 + 2 - 2, 4 }
+                => any{ is_comma{} }
+            }
+        };
+        assert!(a);
+    }
+
+    #[test]
+    fn none_is_comma() {
+        let a = {
+            apply_pipe!{
+                { 3 + 2 - 2 * 4 }
+                => any{ is_comma{} }
+            }
+        };
+        assert!(!a);
+    }
+
+    #[test]
+    fn all_is_not_comma() {
+        let a = {
+            apply_pipe!{
+                { 3 + 2 - 2 * 4 }
+                => all{ is_comma{} => not{} }
+            }
+        };
+        assert!(a);
+    }
+
+    #[test]
+    fn all_is_comma() {
+        let a = {
+            apply_pipe!{
+                { , , }
+                => all{ is_comma{} }
+            }
+        };
+        assert!(a);
     }
 }

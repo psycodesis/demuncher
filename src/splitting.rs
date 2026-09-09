@@ -26,6 +26,11 @@ macro_rules! split_by {
     ) => {
         $cont! { {$($tokens)* } => $crate::split { $crate::is_colon{} } => $($cont_args)* }
     };
+    (
+        {$($tokens:tt)*} => {+} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {$($tokens)* } => $crate::split { $crate::is_plus{} } => $($cont_args)* }
+    };
 }
 
 #[macro_export]
@@ -74,6 +79,20 @@ macro_rules! is_double_arrow {
 macro_rules! is_colon {
     (
         {:} => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {true} => $($cont_args)* }
+    };
+    (
+        { $($tokens:tt)* } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {false} => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! is_plus {
+    (
+        {+} => {} => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { {true} => $($cont_args)* }
     };
