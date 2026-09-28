@@ -64,21 +64,12 @@ macro_rules! split_prefix_until {
 #[macro_export]
 macro_rules! debrace {
     (
-        {{$($tokens:tt)*}} => {} => $cont:path { $($cont_args:tt)* }
-    ) => {
-        $cont! { {$($tokens)*} => $($cont_args)* }
-    };
-}
-
-#[macro_export]
-macro_rules! perhaps_debrace {
-    (
-        {{$($tokens:tt)*}} => {} => $cont:path { $($cont_args:tt)* }
+        {{$($tokens:tt)*}} => {$(perhaps)?} => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { {$($tokens)*} => $($cont_args)* }
     };
     (
-        {$($tokens:tt)*} => {} => $cont:path { $($cont_args:tt)* }
+        {$($tokens:tt)*} => {perhaps} => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { {$($tokens)*} => $($cont_args)* }
     };
@@ -96,7 +87,12 @@ macro_rules! embrace {
 #[macro_export]
 macro_rules! strip_brackets {
     (
-        {[$($tokens:tt)*]} => {} => $cont:path { $($cont_args:tt)* }
+        {[$($tokens:tt)*]} => {$(perhaps)?} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {$($tokens)*} => $($cont_args)* }
+    };
+    (
+        {$($tokens:tt)*} => {perhaps} => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { {$($tokens)*} => $($cont_args)* }
     };
@@ -114,7 +110,12 @@ macro_rules! in_brackets {
 #[macro_export]
 macro_rules! strip_parentheses {
     (
-        {($($tokens:tt)*)} => {} => $cont:path { $($cont_args:tt)* }
+        {($($tokens:tt)*)} => {$(perhaps)?} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {$($tokens)*} => $($cont_args)* }
+    };
+    (
+        {$($tokens:tt)*} => {perhaps} => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { {$($tokens)*} => $($cont_args)* }
     };
@@ -163,6 +164,33 @@ macro_rules! fork {
         { $head_input:tt $($tail_inputs:tt)* } => { {$($head_pipe:tt)+} $($tail_pipes:tt)* } => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { {$head_input} => $($head_pipe)+ => $crate::__accumulate_forked_pipes { {$($tail_inputs)*} => {$($tail_pipes)*} => {} } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! fork_repeated {
+    (
+        { $($inputs:tt)* } => { {$($head_pipe:tt)+} $($tail_pipes:tt)* } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($inputs)* }
+            => $($head_pipe)+
+            => $crate::__accumulate_forked_repeated_pipes { {$($inputs)*} => {$($tail_pipes)*} => {} }
+            => $($cont_args)*
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! take {
+    (
+        { $($inputs:tt)* } => { $($ops:tt)* } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($inputs)* }
+            => $crate::__accumulate_take { {$($ops)*} => {} }
+            => $($cont_args)*
+        }
     };
 }
 
@@ -343,7 +371,7 @@ macro_rules! any {
         $cont! {
             { $($input)+ }
             => $crate::when{
-                { $crate::head{} => $($cond_pipe)+ } => { reset{true} } else {
+                { $crate::head{} => $($cond_pipe)+ } => { $crate::reset{true} } else {
                     $crate::tail{}
                     => $crate::any{ $($cond_pipe)+ }
                 }
@@ -378,6 +406,351 @@ macro_rules! all {
         {} => { $($cond_pipe:tt)+ } => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { {true} => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+macro_rules! to_struct {
+    (
+        { $($values:tt)* } => { $($keys:ident),* } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $crate::__accumulate_to_struct!{
+            { $($values)* }
+            => {
+                from: { $($keys),* },
+                to: {}
+            }
+            => $cont { $($cont_args)* }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! accumulate {
+    (
+        { $acc:tt }
+        => { $($pipe:tt)+ }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $acc }
+            => $($cont_args)*
+        }
+    };
+    (
+        { $acc:tt $items_head:tt $($items_tail:tt)* }
+        => { $($pipe:tt)+ }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $acc $items_head }
+            => $($pipe)+
+            => $crate::__result_to_accumulate{ $($items_tail)* }
+            => $crate::accumulate { $($pipe)+ }
+            => $($cont_args)*
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! assert_flow {
+    (
+        { $($input:tt)* } => { $($expected:tt)* } => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($input)* }
+            => $crate::__accumulate_assert_flow{
+                pre: {""},
+                exp: { $($expected)* },
+                post: {""}
+            }
+            => $crate::reset{ $($input)* }
+            => $($cont_args)*
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! trace_flow {
+    (
+        { $($input:tt)* } => {$($($description:tt)+)?} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        ::std::compile_error!(::std::concat!($($($description)+,)? ::std::stringify!( $($input)* )));
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __accumulate_assert_flow {
+    (
+        { $input_head:tt $($input_tail:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { $expected:tt* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $input_head }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)* }, exp: { $expected }, post: { "*", $($post)* } }
+            => $crate::reset{ $($input_tail)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)* }, exp: { $expected* }, post: { $($post)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        { $input_head:tt $($input_tail:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { $expected:tt* }, post: { @overridden $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $input_head }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)* }, exp: { $expected }, post: { $($post)* } }
+            => $crate::reset{ $($input_tail)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)* }, exp: { $expected* }, post: { @overridden $($post)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        {}
+        => { pre: { $($pre:tt)* }, exp: { $expected:tt* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{ {} => $($cont_args)* }
+    };
+    (
+        { $input_head:tt $($input_tail:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { $expected:tt+ }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $input_head }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)* }, exp: { $expected }, post: { "+", $($post)* } }
+            => $crate::reset{ $($input_tail)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)* }, exp: { $expected* }, post: { @overridden "+" $($post)* } } // continued as any number
+            => $($cont_args)*
+        }
+    };
+    (
+        { }
+        => { pre: { $($pre:tt)* }, exp: { $expected:tt+ }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        ::std::compile_error!(::std::concat!("Matched so far: ", $($pre)*, " --Here!-- ", $($post)*, ". Here expected ...+ but got nothing"));
+    };
+    (
+        { $input_head:tt $($input_tail:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { $expected:tt? $($expected_tail:tt)* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $input_head }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)* }, exp: { $expected }, post: { "?", $($post)* } }
+            => $crate::reset{ $($input_tail)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, ::std::stringify!( $expected? ) }, exp: { $($expected_tail)* }, post: { $($post)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        { }
+        => { pre: { $($pre:tt)* }, exp: { $expected:tt? $($expected_tail:tt)* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            {}
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, ::std::stringify!( $expected? ) }, exp: { $($expected_tail)* }, post: { $($post)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        { { $($input_inside:tt)* } $($input_tail:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { { $($expected_inside:tt)* } $($expected_tail:tt)* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($input_inside)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, "{" }, exp: { $($expected_inside)* }, post: { "}", $($post)* } }
+            => $crate::reset{ $($input_tail)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, ::std::stringify!({ $($expected_inside)* }) }, exp: { $($expected_tail)* }, post: { $($post)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        { $($wrong_input:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { { $($expected_inside:tt)* } $($expected_tail:tt)* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        ::std::compile_error!(::std::concat!("Matched so far: ", $($pre)*, " --Here!-- ", $($post)*, ". Here expected {...} but got: ", ::std::stringify!($($wrong_input)*)));
+    };
+    (
+        { [ $($input_inside:tt)* ] $($input_tail:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { [ $($expected_inside:tt)* ] $($expected_tail:tt)* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($input_inside)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, "[" }, exp: { $($expected_inside)* }, post: { "]", $($post)* } }
+            => $crate::reset{ $($input_tail)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, ::std::stringify!([ $($expected_inside)* ]) }, exp: { $($expected_tail)* }, post: { $($post)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        { $($wrong_input:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { [ $($expected_inside:tt)* ] $($expected_tail:tt)* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        ::std::compile_error!(::std::concat!("Matched so far: ", $($pre)*, " --Here!-- ", $($post)*, ". Here expected [...] but got: ", ::std::stringify!($($wrong_input)*)));
+    };
+    (
+        { ( $($input_inside:tt)* ) $($input_tail:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { ( $($expected_inside:tt)* ) $($expected_tail:tt)* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($input_inside)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, "(" }, exp: { $($expected_inside)* }, post: { ")", $($post)* } }
+            => $crate::reset{ $($input_tail)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, ::std::stringify!(( $($expected_inside)* )) }, exp: { $($expected_tail)* }, post: { $($post)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        { $($wrong_input:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { ( $($expected_inside:tt)* ) $($expected_tail:tt)* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        ::std::compile_error!(::std::concat!("Matched so far: ", $($pre)*, " --Here!-- ", $($post)*, ". Here expected (...) but got: ", ::std::stringify!($($wrong_input)*)));
+    };
+    (
+        { $($field:tt : $value:tt),+ }
+        => {
+            pre: { $($pre:tt)* },
+            exp: { @struct $expected:ident },
+            post: { $($post:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{ {} => $($cont_args)* }
+    };
+    (
+        { $($wrong_input:tt)* }
+        => {
+            pre: { $($pre:tt)* },
+            exp: { @struct $expected:ident },
+            post: { $($post:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        ::std::compile_error!(::std::concat!("Matched so far: ", $($pre)*, " --Here!-- ", $($post)*, ". Here expected struct but got: ", ::std::stringify!($($wrong_input)*)));
+    };
+    (
+        { $input_head:tt $($input_tail:tt)* }
+        => {
+            pre: { $($pre:tt)* },
+            exp: { $expected_head:ident $($expected_tail:tt)* },
+            post: { $($post:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($input_tail)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, " ", ::std::stringify!( $expected_head ) }, exp: { $($expected_tail)* }, post: { $($post)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        { $($input:tt)* }
+        => { pre: { $($pre:tt)* }, exp: { ! $comment:tt $($expected_tail:tt)* }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($input)* }
+            => $crate::__accumulate_assert_flow{ pre: { $($pre)*, ::std::stringify!( $comment ) }, exp: { $($expected_tail)* }, post: { $($post)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        {}
+        => { pre: { $($pre:tt)* }, exp: {}, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{ {} => $($cont_args)* }
+    };
+    (
+        { $($wrong_input:tt)+ }
+        => { pre: { $($pre:tt)* }, exp: { }, post: { $($post:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        ::std::compile_error!(::std::concat!("Matched so far: ", $($pre)*, " --Here!-- ", $($post)*, ". Here expected nothing but got: ", ::std::stringify!($($wrong_input)*)));
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __result_to_accumulate {
+    (
+        { @break $acc:tt }
+        => { $($items:tt)* }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $acc }
+            => $($cont_args)*
+        }
+    };
+    (
+        { $acc:tt }
+        => { $($items:tt)* }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $acc $($items)* }
+            => $($cont_args)*
+        }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __accumulate_to_struct {
+    (
+        { $values_head:tt $($values_tail:tt)* }
+        => {
+            from: { $keys_head:ident $(, $($keys_tail:ident),+)? },
+            to: { $($($struct:tt)+)? }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $crate::__accumulate_to_struct! {
+            { $($values_tail)* }
+            => {
+                from: { $($($keys_tail),+)? },
+                to: { $($($struct)+ ,)? $keys_head: $values_head }
+            }
+            => $cont { $($cont_args)* }
+        }
+    };
+    (
+        {}
+        => {
+            from: { $($keys:ident),+ },
+            to: { $($($struct:tt)+)? }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! {
+            { $($($struct)+ ,)? $($keys: {}),+ } => $($cont_args)*
+        }
+    };
+    (
+        { $($values:tt)* }
+        => {
+            from: {},
+            to: { $($struct:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! {
+            { $($struct)* $($values)* } => $($cont_args)*
+        }
     };
 }
 
@@ -630,6 +1003,81 @@ macro_rules! __accumulate_forked_pipes {
         => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { { $($acc)* $($output)* } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __accumulate_forked_repeated_pipes {
+    (
+        { $($output:tt)* }
+        => {
+            { $($inputs:tt)* }
+            => { {$($head_pipe:tt)+} $($tail_pipes:tt)* }
+            => { $($acc:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($inputs)* }
+            => $($head_pipe)+
+            => $crate::__accumulate_forked_repeated_pipes { {$($inputs)*} => {$($tail_pipes)*} => { $($acc)* $($output)* } }
+            => $($cont_args)*
+        }
+    };
+    (
+        { $($output:tt)* }
+        => { { $($inputs:tt)* } => {} => { $($acc:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { { $($acc)* $($output)* } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __accumulate_take {
+    (
+        { $inputs_head:tt $($inputs_tail:tt)* }
+        => {
+            { + $($ops_tail:tt)* }
+            => { $($acc:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $crate::__accumulate_take! {
+            { $($inputs_tail)* }
+            => { { $($ops_tail)* } => { $($acc)* $inputs_head } }
+            => $cont { $($cont_args)* }
+        }
+    };
+    (
+        { $inputs_head:tt $($inputs_tail:tt)* }
+        => {
+            { - $($ops_tail:tt)* }
+            => { $($acc:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $crate::__accumulate_take! {
+            { $($inputs_tail)* }
+            => { { $($ops_tail)* } => { $($acc)* } }
+            => $cont { $($cont_args)* }
+        }
+    };
+    (
+        {}
+        => { { $($ops:tt)* } => { $($acc:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { { $($acc)* } => $($cont_args)* }
+    };
+    (
+        { $($inputs:tt)* }
+        => { {} => { $($acc:tt)* } }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { { $($acc)* } => $($cont_args)* }
     };
 }
 
@@ -1645,5 +2093,171 @@ mod tests {
             }
         };
         assert!(a);
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct Struct1 {
+        a: i32,
+        b: i32,
+        c: i32
+    }
+
+    #[test]
+    fn constructs_struct_from_matching_keys_and_values() {
+        let a = {
+            apply_pipe!{
+                { 1 2 3 }
+                => to_struct{a, b, c}
+                => render{ Struct1 { @input } }
+            }
+        };
+        assert_eq!(a, Struct1 { a: 1, b: 2, c: 3 });
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct Struct2 {
+        a: i32,
+        b: i32,
+        c: ()
+    }
+
+    #[test]
+    fn constructs_struct_from_more_keys_than_values() {
+        let a = {
+            apply_pipe!{
+                { 1 2 }
+                => to_struct{a, b, c}
+                => render{ Struct2 { @input } }
+            }
+        };
+        assert_eq!(a, Struct2 { a: 1, b: 2, c: () });
+    }
+
+    #[test]
+    fn constructs_struct_from_less_keys_than_values() {
+        let a = {
+            apply_pipe!{
+                { 1 2 3 + 4 }
+                => to_struct{a, b, c}
+                => render{ Struct1 { @input } }
+            }
+        };
+        assert_eq!(a, Struct1 { a: 1, b: 2, c: 3 + 4 });
+    }
+
+    #[test]
+    fn accumulates_numbers_by_adding() {
+       //trace_macros!(true);
+       let a = {
+            apply_pipe!{
+                { {1} {2} {3} {4} }
+                => accumulate{
+                    render{ @input0 + @input1 }
+                    => embrace{}
+                }
+            }
+        };
+       //trace_macros!(false);
+       assert_eq!(a, 1+2+3+4);
+    }
+
+    #[test]
+    fn accumulates_numbers_by_adding_until_comma() {
+       //trace_macros!(true);
+       let a = {
+            apply_pipe!{
+                { {1} {2} {3}, {4} }
+                => accumulate{
+                    when{ {tail{} => is_comma{}} => {
+                        head{} => render{ @break {@input} }
+                    } else {
+                        render{ {@input0 + @input1} }
+                    }}
+                }
+            }
+        };
+       //trace_macros!(false);
+       assert_eq!(a, 1+2+3);
+    }
+
+    #[test]
+    fn appends_doubled_copy_to_results() {
+        // trace_macros!(true);
+        let a = {
+            apply_pipe!{
+                { {1} {2} {3} {4} }
+                => fork_repeated{
+                    { embrace{} }
+                    {
+                        [ render{ { @input * 2 } } ]
+                        => embrace{}
+                    }
+                }
+                => [
+                    debrace{}
+                    => join_with{,}
+                    => in_brackets{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_brackets{}
+            }
+        };
+        // trace_macros!(false);
+        assert_eq!(a, [[1, 2, 3, 4], [1 * 2, 2 * 2, 3 * 2, 4 * 2]])
+    }
+
+    #[test]
+    fn take_2_out_of_4_inputs() {
+        let a = {
+            apply_pipe!{
+                { {1} {2} {3} {4} }
+                => take{ - + + }
+                => join_with{,}
+                => in_brackets{}
+            }
+        };
+        assert_eq!(a, [2, 3]);
+    }
+
+    #[test]
+    fn assert_single_brace() {
+        // trace_macros!(true);
+        let a = {
+            apply_pipe!{
+                { {1 + 2 + 3} }
+                => assert_flow{ !"Stage 1" { some+ } }
+                => join_with{,}
+                => in_brackets{}
+            }
+        };
+        // trace_macros!(false);
+        assert_eq!(a, [1 + 2 + 3]);
+    }
+
+    #[test]
+    fn assert_pair_inside_items() {
+        // trace_macros!(true);
+        let a = {
+            apply_pipe!{
+                { { {1} {10 + 1} } { { 2 } { 10 + 2 } } { { 3 } { 13 } } }
+                => assert_flow{ !"Stage 1" { {first} {second+} }* }
+                => [
+                    assert_flow{ !"Stage 2" { {first} {second+} } }
+                    => debrace{}
+                    => assert_flow{ !"Stage 3" {first} {second+} }
+                    => join_with{,}
+                    => in_brackets{}
+                    => embrace{}
+                    => assert_flow{ !"Stage 4" {[content+]} }
+                ]
+                => assert_flow{ !"Stage 5" {[content+]}* }
+                => join_with{,}
+                => in_brackets{}
+                => assert_flow{ !"Stage 6" [content*] }
+            }
+        };
+        // trace_macros!(false);
+        assert_eq!(a, [[1, 11], [2, 12], [3, 13]]);
     }
 }
