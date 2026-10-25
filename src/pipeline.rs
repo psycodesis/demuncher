@@ -62,6 +62,30 @@ macro_rules! split_prefix_until {
 }
 
 #[macro_export]
+macro_rules! split_last {
+    (
+        { $($input:tt)* } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { { {} {} } $($input)* }
+            => $crate::accumulate {
+                $crate::fork{
+                    {
+                        $crate::debrace{}
+                        => $crate::concat{}
+                        => $crate::embrace{}
+                    }
+                    { $crate::embrace{} }
+                }
+                => $crate::embrace{}
+            }
+            => $crate::debrace{}
+            => $($cont_args)*
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! debrace {
     (
         {{$($tokens:tt)*}} => {$(perhaps)?} => $cont:path { $($cont_args:tt)* }
@@ -284,6 +308,15 @@ macro_rules! append {
 }
 
 #[macro_export]
+macro_rules! concat {
+    (
+        { $({ $($input:tt)* })* } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{ { $($($input)*)* } => $($cont_args)* }
+    };
+}
+
+#[macro_export]
 macro_rules! not {
     (
         { true } => {} => $cont:path { $($cont_args:tt)* }
@@ -480,6 +513,20 @@ macro_rules! trace_flow {
 }
 
 #[macro_export]
+macro_rules! break_flow {
+    (
+        { $($input_ignored:tt)* } => {$($output:tt)+} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $($output)+
+    };
+    (
+        { $($output:tt)* } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $($output)+
+    };
+}
+
+#[macro_export]
 #[doc(hidden)]
 macro_rules! __accumulate_assert_flow {
     (
@@ -635,6 +682,49 @@ macro_rules! __accumulate_assert_flow {
         => {
             pre: { $($pre:tt)* },
             exp: { @struct $expected:ident },
+            post: { $($post:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        ::std::compile_error!(::std::concat!("Matched so far: ", $($pre)*, " --Here!-- ", $($post)*, ". Here expected struct but got: ", ::std::stringify!($($wrong_input)*)));
+    };
+    (
+        { $($input:tt)* }
+        => {
+            pre: { $($pre:tt)* },
+            exp: { @match $matcher:path $({ $($matcher_args:tt)* })? },
+            post: { $($post:tt)* }
+        }
+        => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont!{
+            { $($input)* }
+            => $crate::when{
+                { $matcher { $($($matcher_args)*)? } } => {
+                    $crate::reset{}
+                } else {
+                    $crate::break_flow{
+                        ::std::compile_error!(::std::concat!(
+                            "Matched so far: ",
+                            $($pre)*,
+                            " --Here!-- ",
+                            $($post)*,
+                            ". Here expected to match ",
+                            ::std::stringify!($matcher $({ $($matcher_args)* })?),
+                            " but got: ",
+                            ::std::stringify!($($input)*))
+                        );
+                    }
+                }
+            }
+            => $($cont_args)*
+        }
+    };
+    (
+        { $($wrong_input:tt)* }
+        => {
+            pre: { $($pre:tt)* },
+            exp: { @match $expected:ident },
             post: { $($post:tt)* }
         }
         => $cont:path { $($cont_args:tt)* }
@@ -2259,5 +2349,65 @@ mod tests {
         };
         // trace_macros!(false);
         assert_eq!(a, [[1, 11], [2, 12], [3, 13]]);
+    }
+
+    #[test]
+    fn splits_last_of_4_numbers() {
+        let a = {
+            apply_pipe!{
+                { 1 2 3 4 }
+                => split_last{}
+                => [
+                    debrace{}
+                    => [embrace{}]
+                    => join_with{,}
+                    => in_brackets{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_parentheses{}
+            }
+        };
+        assert_eq!(a, ([1, 2, 3], [4]));
+    }
+
+    #[test]
+    fn splits_last_of_1_number() {
+        let a: ([i32; 0], [i32; 1]) = {
+            apply_pipe!{
+                { 1 }
+                => split_last{}
+                => [
+                    debrace{}
+                    => [embrace{}]
+                    => join_with{,}
+                    => in_brackets{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_parentheses{}
+            }
+        };
+        assert_eq!(a, ([], [1]));
+    }
+
+    #[test]
+    fn splits_last_of_0_numbers() {
+        let a: ([i32; 0], [i32; 0]) = {
+            apply_pipe!{
+                { }
+                => split_last{}
+                => [
+                    debrace{}
+                    => [embrace{}]
+                    => join_with{,}
+                    => in_brackets{}
+                    => embrace{}
+                ]
+                => join_with{,}
+                => in_parentheses{}
+            }
+        };
+        assert_eq!(a, ([], []));
     }
 }

@@ -27,6 +27,11 @@ macro_rules! split_by {
         $cont! { {$($tokens)* } => $crate::split { $crate::is_colon{} } => $($cont_args)* }
     };
     (
+        {$($tokens:tt)*} => {::} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {$($tokens)* } => $crate::split { $crate::is_double_colon{} } => $($cont_args)* }
+    };
+    (
         {$($tokens:tt)*} => {+} => $cont:path { $($cont_args:tt)* }
     ) => {
         $cont! { {$($tokens)* } => $crate::split { $crate::is_plus{} } => $($cont_args)* }
@@ -90,6 +95,20 @@ macro_rules! is_colon {
 }
 
 #[macro_export]
+macro_rules! is_double_colon {
+    (
+        {::} => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {true} => $($cont_args)* }
+    };
+    (
+        { $($tokens:tt)* } => {} => $cont:path { $($cont_args:tt)* }
+    ) => {
+        $cont! { {false} => $($cont_args)* }
+    };
+}
+
+#[macro_export]
 macro_rules! is_plus {
     (
         {+} => {} => $cont:path { $($cont_args:tt)* }
@@ -107,7 +126,7 @@ macro_rules! is_plus {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{apply_pipe, debrace, embrace, fork, reset};
+    use crate::{apply_pipe, debrace, embrace, fork, join_with, reset, split_last};
 
     macro_rules! as_array {
         (
@@ -194,5 +213,34 @@ mod tests {
         };
         //trace_macros!(false);
         assert_eq!(a, ["a1", "b", "c_1_2"]);
+    }
+
+    mod test_path_a {
+        pub mod test_path_b {
+            pub mod test_path_c {
+                #[allow(dead_code)]
+                pub const TEST1: i32 = 11;
+                pub const TEST2: i32 = 12;
+            }
+        }
+    }
+
+    #[test]
+    fn split_path_by_double_colon_and_replace_last_segment() {
+        //trace_macros!(true);
+        let a = {
+            apply_pipe! {
+                { test_path_a::test_path_b::test_path_c::TEST1 }
+                => split_by{::}
+                => split_last{}
+                => fork{
+                    { debrace{} }
+                    { reset{ {TEST2} } }
+                }
+                => join_with{::}
+            }
+        };
+        //trace_macros!(false);
+        assert_eq!(a, test_path_a::test_path_b::test_path_c::TEST2);
     }
 }
